@@ -912,22 +912,6 @@ class ClientTest extends \PHPUnit_Framework_TestCase
         $this->assertEquals(['GET /redirect 301 ', 'GET /redirected 200 application/json'], $records);
     }
 
-    public function testLoggingDefault()
-    {
-        $client = new Client();
-        $client->setLogger();
-
-        $logger = \PHPUnit_Framework_Assert::readAttribute($client, 'logger');
-        $this->assertInstanceOf(
-            \Closure::class,
-            $logger
-        );
-
-        $reflection = new \ReflectionFunction($logger);
-        $args = $reflection->getParameters();
-        $this->assertTrue(array_shift($args)->isCallable());
-    }
-
     public function testLoggingRequestHandler()
     {
         $handler = $this->getMockHandler([
@@ -947,36 +931,6 @@ class ClientTest extends \PHPUnit_Framework_TestCase
             $records[] = $record['message'];
         }
         $this->assertEquals(['GET /test 200 application/json'], $records);
-    }
-
-    public function testSetSimpleLog()
-    {
-        $handler = $this->getMockHandler([
-            new Response(200, ['Content-Type' => 'application/json'])
-        ]);
-
-        $client = new Client(
-            [
-                'base_uri' => 'http://example.org',
-                'handler' => $handler,
-            ]
-        );
-
-        $fp = fopen('php://memory', 'wb+');
-        $client->setSimpleLog($fp, '{method} {target} {code}');
-        $client->get('/test');
-
-        fseek($fp, 0);
-        $this->assertEquals('GET /test 200', fgets($fp));
-    }
-
-    public function testSetSimpleLogInvalid()
-    {
-        $logger = new SimpleLog();
-        $client = new Client();
-        $client->setLogger($logger);
-
-        $this->assertFalse($client->setSimpleLog('test'));
     }
 
     public function makeAuthHeaderProvider()

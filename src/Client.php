@@ -259,22 +259,16 @@ class Client extends \GuzzleHttp\Client implements \Psr\Log\LoggerAwareInterface
     }
 
     /**
-     * Set a PSR-3 compatible logger (or use monolog by default)
+     * Set a PSR-3 compatible logger
      *
      * @param \Psr\Log\LoggerInterface $logger
      * @param string $messageFormat Message format
      * @return $this
      */
     public function setLogger(
-        \Psr\Log\LoggerInterface $logger = null,
+        \Psr\Log\LoggerInterface $logger,
         $messageFormat = \GuzzleHttp\MessageFormatter::CLF
     ) {
-        if ($logger === null) {
-            $handler = new \Monolog\Handler\ErrorLogHandler(\Monolog\Handler\ErrorLogHandler::SAPI);
-            $handler->setFormatter(new \Monolog\Formatter\LineFormatter('%message%'));
-            $logger = new \Monolog\Logger('HTTP Log', [$handler]);
-        }
-
         $formatter = new \GuzzleHttp\MessageFormatter($messageFormat);
 
         $handler = \GuzzleHttp\Middleware::log($logger, $formatter);
@@ -284,26 +278,6 @@ class Client extends \GuzzleHttp\Client implements \Psr\Log\LoggerAwareInterface
         $this->setLogHandler($handlerStack, $handler);
 
         return $this;
-    }
-
-    /**
-     * Add logger using a given filename/format
-     *
-     * @param string $filename
-     * @param string $format
-     * @return \Akamai\Open\EdgeGrid\Client|bool
-     */
-    public function setSimpleLog($filename, $format = '{code}')
-    {
-        if ($this->logger && !($this->logger instanceof \Monolog\Logger)) {
-            return false;
-        }
-
-        $handler = new \Monolog\Handler\StreamHandler($filename);
-        $handler->setFormatter(new \Monolog\Formatter\LineFormatter('%message%'));
-        $log = new \Monolog\Logger('HTTP Log', [$handler]);
-
-        return $this->setLogger($log, $format);
     }
 
     /**

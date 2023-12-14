@@ -1,4 +1,15 @@
+
 # akamai-open/edgegrid-client
+
+## Fork: Remove Monolog as a main dependency
+
+Move it to a dev dependency (provide a default in testing). This library was blocking us from upgrading to Laravel 7, which requires Monolog 2.x. This lib has a newer version that uses 2.x, but that requires PHP 8.1, which we're not ready for yet. So I looked at the class and decided to remove the dependency on Monolog.
+
+Monolog is only used when you call `setLogger()` with no args or if you call `setSimpleLogger($filePath)`. The first doesn't make sense to me - just pass in a logger. The second is just unnecessary when you have the first.
+
+We don't use the logger feature of the edge cache client. If we did, we can still pass in a logger.
+
+---
 
 [![License](https://img.shields.io/github/license/akamai/AkamaiOPEN-edgegrid-php-client.png)](https://github.com/akamai/AkamaiOPEN-edgegrid-php-client/blob/master/LICENSE)
 [![Build Status](https://travis-ci.org/akamai/AkamaiOPEN-edgegrid-php-client.svg?branch=master)](https://travis-ci.org/akamai/AkamaiOPEN-edgegrid-php-client)
