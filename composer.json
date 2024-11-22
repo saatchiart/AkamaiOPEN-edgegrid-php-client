@@ -12,9 +12,9 @@
         }
     ],
     "require": {
-        "php": ">=5.5",
+        "php": ">=7.4",
         "akamai-open/edgegrid-auth": "^1.0.0",
-        "guzzlehttp/guzzle": "^6.1.1",
+        "guzzlehttp/guzzle": "^7.0.1",
         "psr/log": "^1.0",
         "league/climate": "~3.2"
     },
@@ -38,7 +38,7 @@
     },
     "config": {
         "platform": {
-            "php": "5.5"
+            "php": "7.4"
         }
     },
     "bin": [
