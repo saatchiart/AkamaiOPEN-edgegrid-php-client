@@ -1,650 +1,209 @@
 <?php
-/**
- * Akamai {OPEN} EdgeGrid Auth Client
- *
- * @author Davey Shafik <dshafik@akamai.com>
- * @copyright Copyright 2016 Akamai Technologies, Inc. All rights reserved.
- * @license Apache 2.0
- * @link https://github.com/akamai-open/AkamaiOPEN-edgegrid-php-client
- * @link https://developer.akamai.com
- * @link https://developer.akamai.com/introduction/Client_Auth.html
- */
+
+declare(strict_types=1);
+
 namespace Akamai\Open\EdgeGrid;
 
+use Akamai\Open\EdgeGrid\Authentication;
+use Akamai\Open\EdgeGrid\Authentication\Nonce;
+use Akamai\Open\EdgeGrid\Authentication\Timestamp;
 use Akamai\Open\EdgeGrid\Handler\Authentication as AuthenticationHandler;
-use Akamai\Open\EdgeGrid\Handler\Debug as DebugHandler;
-use Akamai\Open\EdgeGrid\Handler\Verbose as VerboseHandler;
+use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\ClientInterface;
+use GuzzleHttp\ClientTrait;
+use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Promise\PromiseInterface;
+use GuzzleHttp\Utils;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 
-/**
- * Akamai {OPEN} EdgeGrid Client for PHP
- *
- * Akamai\Open\EdgeGrid\Client wraps GuzzleHttp\Client
- * providing request authentication/signing for Akamai
- * {OPEN} APIs.
- *
- * This client works _identically_ to GuzzleHttp\Client
- *
- * However, if you try to call an Akamai {OPEN} API you *must*
- * first call {@see Akamai\Open\EdgeGrid\Client->setAuth()}.
- *
- * @package Akamai\Open\EdgeGrid\Client
- */
-class Client extends \GuzzleHttp\Client implements \Psr\Log\LoggerAwareInterface
+final class Client implements ClientInterface
 {
-    const VERSION = '1.0.0';
+    use ClientTrait;
 
-    /**
-     * @const int Default Timeout in seconds
-     */
-    const DEFAULT_REQUEST_TIMEOUT = 300;
+    private const VERSION = '1.0.0';
+    private const DEFAULT_REQUEST_TIMEOUT = 300;
 
-    /**
-     * @var bool|array|resource Whether verbose mode is enabled
-     *
-     * - true - Use STDERR
-     * - array - output/error streams (different)
-     * - resource - output/error stream (same)
-     */
-    protected static $staticVerbose = false;
+    private Authentication $authentication;
 
-    /**
-     * @var bool|resource Whether debug mode is enabled
-     */
-    protected static $staticDebug = false;
+    private readonly GuzzleClient $guzzleClient;
 
-    /**
-     * @var \Akamai\Open\EdgeGrid\Authentication
-     */
-    protected $authentication;
-
-    /**
-     * @var \Akamai\Open\EdgeGrid\Handler\Verbose
-     */
-    protected $verboseHandler;
-
-    /**
-     * @var \Akamai\Open\EdgeGrid\Handler\Debug
-     */
-    protected $debugHandler;
-
-    /**
-     * @var bool|array|resource Whether verbose mode is enabled
-     *
-     * - true - Use STDOUT
-     * - array - output/error streams (different)
-     * - resource - output/error stream (same)
-     */
-    protected $verbose = false;
-
-    /**
-     * @var bool|resource Whether debugging is enabled
-     */
-    protected $debug = false;
-
-    /**
-     * @var bool Whether to override the static verbose setting
-     */
-    protected $verboseOverride = false;
-
-    /**
-     * @var bool Whether to override the static debug setting
-     */
-    protected $debugOverride = false;
-
-    /**
-     * @var callable Logging Handler
-     */
-    protected $logger;
-
-    /**
-     * \GuzzleHttp\Client-compatible constructor
-     *
-     * @param array $config Config options array
-     * @param Authentication|null $authentication
-     */
+    /** @param array<string, mixed> $config */
     public function __construct(
-        $config = [],
-        Authentication $authentication = null
+        array $config = [],
+        ?Authentication $authentication = null
     ) {
-        $config = $this->setAuthenticationHandler($config, $authentication);
-        $config = $this->setBasicOptions($config);
+        $config = $this->addAuthenticationToConfig($config, $authentication);
+        $config = $this->addBasicOptionsToConfig($config);
+        $config['headers'] ??= [];
+        \assert(\is_array($config['headers']), "Headers must be an array");
         $config['headers']['User-Agent'] = 'Akamai-Open-Edgegrid-PHP/' .
-            self::VERSION . ' ' . \GuzzleHttp\default_user_agent();
+            self::VERSION . ' ' . Utils::defaultUserAgent();
 
-        parent::__construct($config);
+        $this->guzzleClient = new GuzzleClient($config);
     }
 
     /**
-     * Make an Asynchronous request
+     * @inheritDoc
      *
-     * @param string $method
-     * @param string $uri
-     * @param array $options
-     * @return \GuzzleHttp\Promise\PromiseInterface
-     * @throws \GuzzleHttp\Exception\GuzzleException
+     * @param array<string, mixed> $options
      */
-    public function requestAsync($method, $uri = null, array $options = []): PromiseInterface
+    public function requestAsync(string $method, $uri = '', array $options = []): PromiseInterface
     {
-        $options = $this->setRequestOptions($options);
+        $options = $this->addRequestOptionsToOptions($options);
 
-        $query = parse_url($uri, PHP_URL_QUERY);
+        $query = \parse_url((string) $uri, \PHP_URL_QUERY);
+
         if (!empty($query)) {
-            $uri = substr($uri, 0, (strlen($query)+1) * -1);
-            parse_str($query, $options['query']);
+            $uri = \mb_substr((string) $uri, 0, (\mb_strlen($query) + 1) * -1);
+            \parse_str($query, $options['query']);
         }
 
-        return parent::requestAsync($method, $uri, $options);
+        return $this->guzzleClient->requestAsync($method, $uri, $options);
     }
 
     /**
-     * Send an Asynchronous HTTP request
+     * @inheritDoc
      *
-     * @param \Psr\Http\Message\RequestInterface $request The HTTP request
-     * @param array $options Request options
-     *
-     * @return \GuzzleHttp\Promise\PromiseInterface
+     * @param array<string, mixed> $options
      */
-    public function sendAsync(\Psr\Http\Message\RequestInterface $request, array $options = []): PromiseInterface
+    public function request(string $method, $uri, array $options = []): ResponseInterface
     {
-        $options = $this->setRequestOptions($options);
+        return $this->guzzleClient->request($method, $uri, $options);
+    }
 
-        return parent::sendAsync($request, $options);
+    /** @param array<string, mixed> $options */
+    public function send(RequestInterface $request, array $options = []): ResponseInterface
+    {
+        return $this->guzzleClient->send($request, $options);
+    }
+
+    /** @return array<string, mixed> */
+    public function getConfig(?string $option = null): array
+    {
+        /** @var array<string, mixed> $config */
+        $config = $this->guzzleClient->getConfig($option);
+
+        return $config;
     }
 
     /**
-     * Set Akamai {OPEN} Authentication Credentials
+     * @inheritDoc
      *
-     * @param string $client_token
-     * @param string $client_secret
-     * @param string $access_token
-     * @return $this
+     * @param array<string, mixed> $options
      */
-    public function setAuth($client_token, $client_secret, $access_token)
+    public function sendAsync(RequestInterface $request, array $options = []): PromiseInterface
     {
-        $this->authentication->setAuth($client_token, $client_secret, $access_token);
+        $options = $this->addRequestOptionsToOptions($options);
 
-        return $this;
+        return $this->guzzleClient->sendAsync($request, $options);
     }
 
-    /**
-     * Specify the headers to include when signing the request
-     *
-     * This is specified by the API, currently no APIs use this
-     * feature.
-     *
-     * @param array $headers
-     * @return $this
-     */
-    public function setHeadersToSign(array $headers)
+    /** @param array<string, mixed> $config */
+    private function setAuthentication(array $config, ?Authentication $authentication = null): void
     {
-        $this->authentication->setHeadersToSign($headers);
+        $this->authentication = $authentication ?? new Authentication();
 
-        return $this;
-    }
+        $timestamp = $config['timestamp'] ?? null;
 
-    /**
-     * Set the max body size
-     *
-     * @param int $max_body_size
-     * @return $this
-     */
-    public function setMaxBodySize($max_body_size)
-    {
-        $this->authentication->setMaxBodySize($max_body_size);
-
-        return $this;
-    }
-
-    /**
-     * Set Request Host
-     *
-     * @param string $host
-     * @return $this
-     */
-    public function setHost($host)
-    {
-        if (substr($host, -1) === '/') {
-            $host = substr($host, 0, -1);
+        if ($timestamp) {
+            \assert(\is_string($timestamp) || $timestamp instanceof Timestamp);
+            $this->authentication->setTimestamp($timestamp);
         }
 
-        $headers = $this->getConfig('headers');
-        $headers['Host'] = $host;
-        $this->setConfigOption('headers', $headers);
+        $nonce = $config['nonce'] ?? null;
 
-        if (strpos('/', $host) === false) {
-            $host = 'https://' . $host;
-        }
-        $this->setConfigOption('base_uri', $host);
-
-        return $this;
-    }
-
-    /**
-     * Set the HTTP request timeout
-     *
-     * @param int $timeout_in_seconds
-     * @return $this
-     */
-    public function setTimeout($timeout_in_seconds)
-    {
-        $this->setConfigOption('timeout', $timeout_in_seconds);
-
-        return $this;
-    }
-
-    /**
-     * Print formatted JSON responses to output
-     *
-     * @param bool|resource $enable
-     * @return $this
-     */
-    public function setInstanceVerbose($enable)
-    {
-        $this->verboseOverride = true;
-        $this->verbose = $enable;
-        return $this;
-    }
-
-    /**
-     * Print HTTP requests/responses to output
-     *
-     * @param bool|resource $enable
-     * @return $this
-     */
-    public function setInstanceDebug($enable)
-    {
-        $this->debugOverride = true;
-        $this->debug = $enable;
-        return $this;
-    }
-
-    /**
-     * Set a PSR-3 compatible logger
-     *
-     * @param \Psr\Log\LoggerInterface $logger
-     * @param string $messageFormat Message format
-     * @return $this
-     */
-    public function setLogger(
-        \Psr\Log\LoggerInterface $logger,
-        $messageFormat = \GuzzleHttp\MessageFormatter::CLF
-    ) {
-        $formatter = new \GuzzleHttp\MessageFormatter($messageFormat);
-
-        $handler = \GuzzleHttp\Middleware::log($logger, $formatter);
-        $this->logger = $handler;
-
-        $handlerStack = $this->getConfig('handler');
-        $this->setLogHandler($handlerStack, $handler);
-
-        return $this;
-    }
-
-    /**
-     * Create instance using environment (preferred) or .edgerc file (fallback) automatically.
-     *
-     * @param string $section
-     * @param null $path
-     * @return Client
-     * @throws \Akamai\Open\EdgeGrid\Authentication\Exception\ConfigException
-     */
-    public static function createInstance($section = 'default', $path = null, array $config = [])
-    {
-        $auth = \Akamai\Open\EdgeGrid\Authentication::createInstance($section, $path);
-
-        if ($host = $auth->getHost()) {
-            $config['base_uri'] = 'https://' .$host;
-        }
-
-        return new static($config, $auth);
-    }
-
-    public static function createFromEnv($section = 'default', array $config = [])
-    {
-        $auth = \Akamai\Open\EdgeGrid\Authentication::createFromEnv($section);
-
-        if ($host = $auth->getHost()) {
-            $config['base_uri'] = 'https://' . $host;
-        }
-
-        return new static($config, $auth);
-    }
-
-    /**
-     * Factory method to create a client using credentials from `.edgerc`
-     *
-     * Automatically checks your HOME directory, and the current working
-     * directory for credentials, if no path is supplied.
-     *
-     * @param string $section Credential section to use
-     * @param string $path Path to .edgerc credentials file
-     * @param array $config Options to pass to the constructor/guzzle
-     * @return \Akamai\Open\EdgeGrid\Client
-     */
-    public static function createFromEdgeRcFile($section = 'default', $path = null, array $config = [])
-    {
-        $auth = \Akamai\Open\EdgeGrid\Authentication::createFromEdgeRcFile($section, $path);
-
-        if ($host = $auth->getHost()) {
-            $config['base_uri'] = 'https://' . $host;
-        }
-
-        return new static($config, $auth);
-    }
-
-    /**
-     * Print HTTP requests/responses to STDOUT
-     *
-     * @param bool|resource $enable
-     */
-    public static function setDebug($enable)
-    {
-        self::$staticDebug = $enable;
-    }
-
-    /**
-     * Print formatted JSON responses to STDOUT
-     *
-     * @param bool|resource|array $enable
-     */
-    public static function setVerbose($enable)
-    {
-        self::$staticVerbose = $enable;
-    }
-
-    /**
-     * Handle debug option
-     *
-     * @param array $config
-     * @return bool|resource
-     */
-    protected function getDebugOption(array $config)
-    {
-        if (isset($config['debug'])) {
-            return ($config['debug'] === true) ? fopen('php://stderr', 'ab') : $config['debug'];
-        }
-
-        if ($this->debugOverride && $this->debug) {
-            return ($this->debug === true) ? fopen('php://stderr', 'ab') : $this->debug;
-        } elseif (!$this->debugOverride && static::$staticDebug) {
-            return (static::$staticDebug === true) ? fopen('php://stderr', 'ab') : static::$staticDebug;
-        }
-
-        return false;
-    }
-
-    /**
-     * Debugging status for the current request
-     *
-     * @return bool|resource
-     */
-    protected function isDebug()
-    {
-        if (($this->debugOverride && !$this->debug) || (!$this->debugOverride && !static::$staticDebug)) {
-            return false;
-        }
-
-        if ($this->debugOverride && $this->debug) {
-            return $this->debug;
-        }
-
-        return static::$staticDebug;
-    }
-
-    /**
-     * Verbose status for the current request
-     *
-     * @return array|bool|resource
-     */
-    protected function isVerbose()
-    {
-        if (($this->verboseOverride && !$this->verbose) || (!$this->verboseOverride && !static::$staticVerbose)) {
-            return false;
-        }
-
-        if ($this->verboseOverride && $this->verbose) {
-            return $this->verbose;
-        }
-
-        return static::$staticVerbose;
-    }
-
-    /**
-     * Set the Authentication instance
-     *
-     * @param array $config
-     * @param Authentication|null $authentication
-     */
-    protected function setAuthentication(array $config, Authentication $authentication = null)
-    {
-        $this->authentication = $authentication;
-        if ($authentication === null) {
-            $this->authentication = new Authentication();
-        }
-
-        if (isset($config['timestamp'])) {
-            $this->authentication->setTimestamp($config['timestamp']);
-        }
-
-        if (isset($config['nonce'])) {
-            $this->authentication->setNonce($config['nonce']);
+        // phpcs:disable SlevomatCodingStandard.ControlStructures.EarlyExit.EarlyExitNotUsed
+        if ($nonce) {
+            // phpcs:enable
+            \assert(\is_string($nonce) || $nonce instanceof Nonce);
+            $this->authentication->setNonce($nonce);
         }
     }
 
     /**
-     * Set the Authentication Handler
+     * @param array<string, mixed> $config
      *
-     * @param array $config
-     * @param Authentication|null $authentication
-     * @return array
+     * @return array<string, mixed>
      */
-    protected function setAuthenticationHandler(array $config, Authentication $authentication = null)
+    private function addAuthenticationToConfig(array $config, ?Authentication $authentication = null): array
     {
         $this->setAuthentication($config, $authentication);
 
         $authenticationHandler = new AuthenticationHandler();
         $authenticationHandler->setSigner($this->authentication);
-        if (!isset($config['handler'])) {
-            $config['handler'] = \GuzzleHttp\HandlerStack::create();
-        }
+
+        $config['handler'] ??= HandlerStack::create();
+
         try {
-            if (!($config['handler'] instanceof \GuzzleHttp\HandlerStack)) {
-                $config['handler'] = \GuzzleHttp\HandlerStack::create($config['handler']);
+            if (!($config['handler'] instanceof HandlerStack)) {
+                \assert(
+                    \is_callable($config['handler']),
+                    "Callable handler expected, got " . \gettype($config['handler'])
+                );
+                $config['handler'] = HandlerStack::create($config['handler']);
             }
+
             $config['handler']->before('history', $authenticationHandler, 'authentication');
-        } catch (\InvalidArgumentException $e) {
+        } catch (\InvalidArgumentException) {
+            \assert(
+                $config['handler'] instanceof HandlerStack,
+                "HandlerStack expected, got " . \gettype($config['handler'])
+            );
             // history middleware not added yet
             $config['handler']->push($authenticationHandler, 'authentication');
         }
+
         return $config;
     }
 
     /**
      * Set timeout and base_uri options
      *
-     * @param array $config
-     * @return mixed
+     * @param array<string, mixed> $config
+     *
+     * @return array<string, mixed>
      */
-    protected function setBasicOptions(array $config)
+    private function addBasicOptionsToConfig(array $config): array
     {
-        if (!isset($config['timeout'])) {
-            $config['timeout'] = static::DEFAULT_REQUEST_TIMEOUT;
-        }
+        $config['timeout'] ??= self::DEFAULT_REQUEST_TIMEOUT;
 
-        if (isset($config['base_uri']) && strpos($config['base_uri'], 'http') === false) {
-            $config['base_uri'] = 'https://' . $config['base_uri'];
+        $baseUri = $config['base_uri'] ?? null;
+
+        if (\is_string($baseUri) && $baseUri && !\str_contains($baseUri, 'http')) {
+            $baseUri = 'https://' . $baseUri;
+
             return $config;
         }
+
         return $config;
     }
 
     /**
-     * Set values on the private \GuzzleHttp\Client->config
+     * @param array<string, mixed> $options
      *
-     * This is a terrible hack, and illustrates why making
-     * anything private makes it difficult to extend, and impossible
-     * when there is no setter.
-     *
-     * @param string $what Config option to set
-     * @param mixed $value Value to set the option to
-     * @return void
+     * @return array<string, mixed>
      */
-    protected function setConfigOption($what, $value)
+    private function addRequestOptionsToOptions(array $options): array
     {
-        $closure = function () use ($what, $value) {
-            /* @var $this \GuzzleHttp\Client */
-            $this->config[$what] = $value;
-        };
+        $timestamp = $options['timestamp'] ?? null;
 
-        $closure = $closure->bindTo($this, \GuzzleHttp\Client::class);
-        $closure();
-    }
-
-    /**
-     * Add the Debug handler to the HandlerStack
-     *
-     * @param array $options Guzzle Options
-     * @param bool|resource|null $fp Stream to write to
-     * @return array
-     */
-    protected function setDebugHandler($options, $fp = null)
-    {
-        try {
-            if (is_bool($fp)) {
-                $fp = null;
-            }
-
-            $handler = $this->getConfig('handler');
-            // if we have a default handler, and we've already created a DebugHandler
-            // we can bail out now (or we will add another one to the stack)
-            if ($handler && $this->debugHandler) {
-                return $options;
-            }
-
-            if (isset($options['handler'])) {
-                $handler = $options['handler'];
-            }
-
-            if ($handler === null) {
-                $handler = \GuzzleHttp\HandlerStack::create();
-            }
-
-            if (!$this->debugHandler) {
-                $this->debugHandler = new DebugHandler($fp);
-            }
-
-            $handler->after('allow_redirects', $this->debugHandler, 'debug');
-        } catch (\InvalidArgumentException $e) {
-            $handler->push($this->debugHandler, 'debug');
-        }
-
-        $options['handler'] = $handler;
-
-        return $options;
-    }
-
-    /**
-     * Add the Log handler to the HandlerStack
-     *
-     * @param \GuzzleHttp\HandlerStack $handlerStack
-     * @param callable $logHandler
-     * @return $this
-     */
-    protected function setLogHandler(\GuzzleHttp\HandlerStack $handlerStack, callable $logHandler)
-    {
-        try {
-            $handlerStack->after('history', $logHandler, 'logger');
-        } catch (\InvalidArgumentException $e) {
-            try {
-                $handlerStack->before('allow_redirects', $logHandler, 'logger');
-            } catch (\InvalidArgumentException $e) {
-                $handlerStack->push($logHandler, 'logger');
-            }
-        }
-
-        return $this;
-    }
-
-    /**
-     * Add the Verbose handler to the HandlerStack
-     *
-     * @param array $options Guzzle Options
-     * @param bool|resource|array|null $fp Stream to write to
-     * @return array
-     */
-    protected function setVerboseHandler($options, $fp = null)
-    {
-        try {
-            if (is_bool($fp) || $fp === null) {
-                $fp = ['outputStream' => null, 'errorStream' => null];
-            } elseif (!is_array($fp)) {
-                $fp = ['outputStream' => $fp, 'errorStream' => $fp];
-            }
-
-            $handler = $this->getConfig('handler');
-            // if we have a default handler, and we've already created a VerboseHandler
-            // we can bail out now (or we will add another one to the stack)
-            if ($handler && $this->verboseHandler) {
-                return $options;
-            }
-
-            if (isset($options['handler'])) {
-                $handler = $options['handler'];
-            }
-
-            if ($handler === null) {
-                $handler = \GuzzleHttp\HandlerStack::create();
-            }
-
-            if (!$this->verboseHandler) {
-                $this->verboseHandler = new VerboseHandler(array_shift($fp), array_shift($fp));
-            }
-
-            $handler->after('allow_redirects', $this->verboseHandler, 'verbose');
-        } catch (\InvalidArgumentException $e) {
-            $handler->push($this->verboseHandler, 'verbose');
-        }
-
-        $options['handler'] = $handler;
-
-        return $options;
-    }
-
-    /**
-     * Set request specific options
-     *
-     * @param array $options
-     * @return array
-     */
-    protected function setRequestOptions(array $options)
-    {
-        if (isset($options['timestamp'])) {
-            $this->authentication->setTimestamp($options['timestamp']);
-        } elseif (!$this->getConfig('timestamp')) {
+        if ($timestamp) {
+            \assert(\is_string($timestamp) || $timestamp instanceof Timestamp);
+            $this->authentication->setTimestamp($timestamp);
+        } elseif (!$this->guzzleClient->getConfig('timestamp')) {
             $this->authentication->setTimestamp();
         }
 
-        if (isset($options['nonce'])) {
-            $this->authentication->setNonce($options['nonce']);
+        $nonce = $options['nonce'] ?? null;
+
+        if ($nonce) {
+            \assert(\is_string($nonce) || $nonce instanceof Nonce, "Nonce must be a string or instance of Nonce");
+            $this->authentication->setNonce($nonce);
         }
 
         if (isset($options['handler'])) {
-            $options = $this->setAuthenticationHandler($options, $this->authentication);
-        }
-
-        if ($fp = $this->isVerbose()) {
-            $options = $this->setVerboseHandler($options, $fp);
-        }
-
-        $options['debug'] = $this->getDebugOption($options);
-        if ($fp = $this->isDebug()) {
-            $options = $this->setDebugHandler($options, $fp);
-        }
-
-        if ($this->logger && isset($options['handler'])) {
-            $this->setLogHandler($options['handler'], $this->logger);
-            return $options;
+            $options = $this->addAuthenticationToConfig($options, $this->authentication);
         }
 
         return $options;
