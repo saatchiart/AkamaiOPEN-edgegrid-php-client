@@ -11,9 +11,15 @@
             "email": "dshafik@akamai.com"
         }
     ],
+    "repositories": [
+      {
+        "type": "vcs",
+        "url": "git@github.com:saatchiart/AkamaiOPEN-edgegrid-php.git"
+      }
+    ],
     "require": {
         "php": ">=8.2",
-        "akamai-open/edgegrid-auth": "^1.0.0",
+        "akamai-open/edgegrid-auth": "dev-php-8-compat",
         "guzzlehttp/guzzle": "^7.0.1",
         "league/climate": "~3.2"
     },
@@ -62,5 +68,7 @@
             "php-cs-fixer fix --level=psr2 ./tests"
         ],
         "check-version": "./tools/check-version.sh"
-    }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
 }
