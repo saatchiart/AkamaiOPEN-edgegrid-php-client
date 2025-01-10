@@ -69,6 +69,7 @@ final class Client implements ClientInterface
      */
     public function request(string $method, $uri, array $options = []): ResponseInterface
     {
+        $options = $this->addRequestOptionsToOptions($options);
         return $this->guzzleClient->request($method, $uri, $options);
     }
 
@@ -186,15 +187,7 @@ final class Client implements ClientInterface
      */
     private function addRequestOptionsToOptions(array $options): array
     {
-        $timestamp = $options['timestamp'] ?? null;
-
-        if ($timestamp) {
-            \assert(\is_string($timestamp) || $timestamp instanceof Timestamp);
-            $this->authentication->setTimestamp($timestamp);
-        } elseif (!$this->guzzleClient->getConfig('timestamp')) {
-            $this->authentication->setTimestamp();
-        }
-
+        $this->authentication->setTimestamp();
         $nonce = $options['nonce'] ?? null;
 
         if ($nonce) {
