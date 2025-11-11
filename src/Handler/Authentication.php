@@ -47,7 +47,7 @@ class Authentication
      *
      * @param Signer|null $auth
      */
-    public function setSigner(\Akamai\Open\EdgeGrid\Authentication $auth = null)
+    public function setSigner(?\Akamai\Open\EdgeGrid\Authentication $auth = null)
     {
         $this->signer = $auth;
         if ($this->signer === null) {
